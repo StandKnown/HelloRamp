@@ -1,58 +1,129 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# HelloRamp
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+AI vehicle photography platform — functional replica of [helloramp.ai](https://helloramp.ai) built with Laravel.
 
-## About Laravel
+Snap showroom car photos on a phone. The platform cleans backgrounds, removes reflections on glossy paint, standardizes angles, and publishes consistent, premium-feeling listings. Includes dealer dashboard, admin review queue, and Stripe subscription billing.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Laravel 13** (framework)
+- **Breeze (Blade + Tailwind)** for auth scaffolding
+- **Laravel Cashier (Stripe)** for subscription billing
+- **Pest 4** for testing (19 passing tests)
+- **MySQL 8** (default; swap `DB_CONNECTION=sqlite` for local)
+- **Vite** for assets
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## What's included
 
-## Learning Laravel
+### Marketing site (public)
+- `/` — Home with hero, product tiles, metrics, featured case studies, CTA
+- `/studio` · `/social` · `/engage` — product detail pages
+- `/solutions` — single lot / dealer groups / online platforms
+- `/pricing` — plans driven by the `plans` table
+- `/case-studies` and `/case-studies/{slug}` — editable in admin
+- `/contact` — lead form with validation
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### Authenticated dashboard (`/dashboard`)
+- Overview with vehicle count, listing count, processing queue, ready/approved
+- Vehicle CRUD (`/vehicles`) scoped to the user's dealership
+- Photo upload (multiple files per vehicle, per-angle) — each upload dispatches `ProcessPhotoJob`
+- **Revisit** — re-enqueues a photo for processing and bumps its `revision` counter
+- Billing (`/billing`) — subscribe to any plan, open the Stripe Billing Portal
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+### Admin panel (`/admin`, admin role only)
+- Dashboard with platform-wide stats
+- Users (list / edit role & dealership / delete)
+- Case Studies (full CRUD)
+- Plans (edit price, Stripe price ID, features, active/featured flags)
+- Review queue (HelloTrust-style human QA — approve or reject+reprocess each AI output)
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+### Data model
+- `dealerships`, `vehicles`, `photos` (status: pending → processing → ready → approved + `revision` for re-runs)
+- `case_studies`, `plans`
+- `users.role` (`admin`/`member`) and `users.dealership_id`
+- Cashier tables: `subscriptions`, `subscription_items`
 
-## Agentic Development
+### Photo enhancement seam
+The AI side is swappable. `App\Services\PhotoEnhancement\PhotoEnhancer` is the contract. `StubPhotoEnhancer` is the default implementation (no-op, copies the original) — used in dev & tests until a real provider is wired in.
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+To add a real driver:
+1. Implement `PhotoEnhancer` (e.g. `ReplicatePhotoEnhancer`).
+2. Register it in `App\Providers\PhotoEnhancementServiceProvider`'s `match ($driver)` block.
+3. Set `PHOTO_DRIVER=yourname` in `.env`.
+
+## Setup
 
 ```bash
-composer require laravel/boost --dev
+git clone git@github.com:StandKnown/HelloRamp.git
+cd HelloRamp
 
-php artisan boost:install
+composer install
+npm install && npm run build
+
+cp .env.example .env
+php artisan key:generate
+php artisan storage:link
+
+# Create the DB (adjust credentials for your MySQL)
+mysql -uroot -e "CREATE DATABASE helloramp"
+
+php artisan migrate --seed
+
+php artisan serve
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Seeded accounts:
+- Admin: `admin@helloramp.test` / `password`
+- Dealer member: `owner@helloramp.test` / `password`
 
-## Contributing
+## Running tests
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+./vendor/bin/pest
+```
 
-## Code of Conduct
+19 feature tests cover marketing routes, vehicle CRUD, photo upload + revisit, enhancement job, admin access control, billing, and contact form.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Stripe (Cashier)
 
-## Security Vulnerabilities
+1. Add your Stripe keys to `.env`:
+   ```
+   STRIPE_KEY=pk_test_...
+   STRIPE_SECRET=sk_test_...
+   STRIPE_WEBHOOK_SECRET=whsec_...
+   ```
+2. Create your prices in the Stripe dashboard, then set each `Plan.stripe_price_id` via `/admin/plans`.
+3. Subscribing hits `BillingController@subscribe`, which redirects to Stripe Checkout. The Billing Portal is at `/billing/portal`.
+4. Point your Stripe webhook at `https://your-host/stripe/webhook` (provided by Cashier). Set `STRIPE_WEBHOOK_SECRET` locally for verification.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Deployment (Forge)
 
-## License
+- Default DB is MySQL — same as a fresh Forge site.
+- Run queue worker: `php artisan queue:work --sleep=1 --tries=2` (or Horizon).
+- Point Nginx root to `public/`.
+- Set `APP_ENV=production`, `APP_DEBUG=false`, and all `STRIPE_*` vars.
+- Build frontend: `npm ci && npm run build`.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Project layout
+
+```
+app/
+├── Http/Controllers/
+│   ├── Marketing/        # Public pages
+│   ├── Dashboard/        # Authenticated dealer UI
+│   ├── Billing/          # Cashier integration
+│   └── Admin/            # Admin panel
+├── Jobs/ProcessPhotoJob.php
+├── Models/               # Dealership, Vehicle, Photo, CaseStudy, Plan + User (Billable)
+└── Services/PhotoEnhancement/
+    ├── PhotoEnhancer.php        # interface
+    ├── EnhancementResult.php    # DTO
+    └── StubPhotoEnhancer.php    # default no-op driver
+```
+
+## Known limitations
+
+- `StubPhotoEnhancer` does not actually enhance photos — it copies the original and marks it as "cleaned". A real provider (Replicate, Stability, bespoke model) needs to be wired in before this is production-useful.
+- The contact form logs leads but does not persist or notify sales.
+- No DMS integrations (vAuto, DealerCenter, etc.) — stubs on the Solutions page only.
+- Social (`Instagram`, `TikTok`, etc. publishing) and Engage (AI avatar video) are described in the marketing site only; no implementation.
