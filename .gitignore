@@ -25,3 +25,10 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Python enhancement pipeline — local venv is huge, models are 170MB each
+/.venv
+/storage/app/models/*.onnx
+/storage/app/public/enhanced/
+__pycache__/
+*.pyc

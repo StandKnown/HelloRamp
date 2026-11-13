@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Route;
 
 /* ---------- Public marketing ---------- */
 Route::get('/', [HomeController::class, 'index'])->name('home');
+Route::get('/samples/compare', [\App\Http\Controllers\SampleCompareController::class, 'index'])->name('samples.compare');
 Route::get('/studio', [ProductController::class, 'studio'])->name('products.studio');
 Route::get('/social', [ProductController::class, 'social'])->name('products.social');
 Route::get('/engage', [ProductController::class, 'engage'])->name('products.engage');

@@ -43,13 +43,48 @@ Snap showroom car photos on a phone. The platform cleans backgrounds, removes re
 - `users.role` (`admin`/`member`) and `users.dealership_id`
 - Cashier tables: `subscriptions`, `subscription_items`
 
-### Photo enhancement seam
-The AI side is swappable. `App\Services\PhotoEnhancement\PhotoEnhancer` is the contract. `StubPhotoEnhancer` is the default implementation (no-op, copies the original) — used in dev & tests until a real provider is wired in.
+### Photo enhancement pipeline
 
-To add a real driver:
-1. Implement `PhotoEnhancer` (e.g. `ReplicatePhotoEnhancer`).
-2. Register it in `App\Providers\PhotoEnhancementServiceProvider`'s `match ($driver)` block.
-3. Set `PHOTO_DRIVER=yourname` in `.env`.
+Two drivers ship today, both bound through `App\Services\PhotoEnhancement\PhotoEnhancer`:
+
+- **`stub`** — no-op, copies the original. Used in tests and as a fallback.
+- **`local_rembg`** — fully local, zero API cost. Uses an ONNX foreground segmenter
+  (`u2net` or `isnet-general-use`) via `onnxruntime`, composites the car onto a
+  seamless cyclorama backdrop with a circular turntable disc, draws a
+  footprint-shaped contact shadow, and adds a subtle floor reflection.
+  See `scripts/enhance.py` and `app/Services/PhotoEnhancement/LocalRembgPhotoEnhancer.php`.
+
+**Setup for the local driver:**
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install onnxruntime Pillow numpy scipy
+
+# Backdrop (studio cyclorama + turntable) — regenerate any time
+.venv/bin/python scripts/make_backdrop.py --output storage/app/backgrounds/studio.png
+
+# Download the segmentation model (~170 MB)
+mkdir -p storage/app/models
+curl -L -o storage/app/models/isnet-general-use.onnx \
+  https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx
+
+# In .env
+PHOTO_DRIVER=local_rembg
+PHOTO_MODEL=/absolute/path/to/storage/app/models/isnet-general-use.onnx
+```
+
+Visit `/samples/compare` to see before/after on the shipped sample images.
+
+**To add another driver** (Replicate, Stability, bespoke model):
+1. Implement `PhotoEnhancer` — one method, returns an `EnhancementResult`
+2. Register it in `App\Providers\PhotoEnhancementServiceProvider`'s `match ($driver)` block
+3. Set `PHOTO_DRIVER=yourname` in `.env`
+
+### Known pipeline limitations (as shipped)
+
+- **Reflection removal from glossy paint** — the differentiator we care about — is **not** implemented. The pipeline removes background but does not inpaint reflections on the car's own paint. That's a real ML project (SDXL + ControlNet or custom).
+- **Multi-car scenes where cars physically touch** are not split. `isnet-general-use` is an edge-only segmenter; it sees two touching cars as one blob. Pre-cropping with `YOLOv8-seg` filtered to the `car` class would fix this.
+- Cold-start is ~10s to load the ONNX model. Warm inference is ~1.3s on CPU via CoreML. A persistent Python daemon is the right production answer.
 
 ## Setup
 
